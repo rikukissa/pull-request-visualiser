@@ -109,24 +109,24 @@ export function Graph() {
 
   useEffect(() => {
     const prFiles = prFilesQuery.data || [];
-    const repoFiles = repoFilesQuery.data || [];
+    // const repoFiles = repoFilesQuery.data || [];
 
     const allKnownDirectories = getDirectoryNames(
       prFiles.map((file: File) => file.filename) ?? []
     );
 
-    const contextFiles = prFiles
-      .flatMap((file: File) =>
-        repoFiles.filter(
-          (f) =>
-            f.path !== file.filename &&
-            directoryName(file.filename) === directoryName(f.path)
-        )
-      )
-      .filter(
-        (value, index, self) =>
-          self.findIndex((v) => v.path === value.path) === index
-      );
+    // const contextFiles = prFiles
+    //   .flatMap((file: File) =>
+    //     repoFiles.filter(
+    //       (f) =>
+    //         f.path !== file.filename &&
+    //         directoryName(file.filename) === directoryName(f.path)
+    //     )
+    //   )
+    //   .filter(
+    //     (value, index, self) =>
+    //       self.findIndex((v) => v.path === value.path) === index
+    //   );
 
     const rootNode = {
       id: "__ROOT__",
@@ -233,9 +233,6 @@ export function Graph() {
   );
 }
 
-function isTopLevel(dir: string) {
-  return dir.split("/").length === 1;
-}
 function basename(filePath: string) {
   return filePath.split("/").pop();
 }

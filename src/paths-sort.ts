@@ -22,7 +22,7 @@ function nodeDistanceFromRoot(
   node: GraphNode,
   nodes: GraphNode[],
   edges: GraphEdge[]
-) {
+): number {
   const edge = edges.find((e) => e.target === node.id);
   if (!edge) {
     return 0;
@@ -34,9 +34,7 @@ function nodeDistanceFromRoot(
   return 1 + nodeDistanceFromRoot(parent, nodes, edges);
 }
 
-export function sortNodes(nodes: GraphNode[], edges: GraphEdge[], sep = "/") {
-  // tässä se "nestaus" level täytyy olla yks factor
-
+export function sortNodes(nodes: GraphNode[], edges: GraphEdge[]) {
   const sortedNodes = nodes.slice().sort((a, b) => {
     const distanceA = nodeDistanceFromRoot(a, nodes, edges);
     const distanceB = nodeDistanceFromRoot(b, nodes, edges);
