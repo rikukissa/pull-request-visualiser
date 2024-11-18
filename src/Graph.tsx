@@ -1,13 +1,27 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
-import { darkTheme, GraphCanvas, GraphEdge, GraphNode } from "reagraph";
+import { useEffect, useRef, useState } from "react";
+import {
+  darkTheme,
+  GraphCanvas,
+  GraphCanvasRef,
+  GraphEdge,
+  GraphNode,
+  LayoutTypes,
+} from "reagraph";
 import { sort, sortNodes } from "./paths-sort";
+import directoryIcon from "./icons/directory.svg";
+import directoryNewIcon from "./icons/directory-new.svg";
+import fileDeleted from "./icons/file-deleted.svg";
+import fileNew from "./icons/file-new.svg";
+import fileModified from "./icons/file-modified.svg";
 
-function colorForFile(file: { status: "modified" | "added" | "deleted" }) {
+const apiKey = localStorage.getItem("GITHUB_API_KEY");
+
+function colorForFile(file: { status: "modified" | "added" | "removed" }) {
   switch (file.status) {
     case "added":
       return "green";
-    case "deleted":
+    case "removed":
       return "red";
     case "modified":
       return "#eac32a";
@@ -15,9 +29,23 @@ function colorForFile(file: { status: "modified" | "added" | "deleted" }) {
       return "black";
   }
 }
+
+function iconForFile(file: { status: "modified" | "added" | "removed" }) {
+  switch (file.status) {
+    case "added":
+      return fileNew;
+    case "removed":
+      return fileDeleted;
+    case "modified":
+      return fileModified;
+    default:
+      return file;
+  }
+}
+
 type File = {
   filename: string;
-  status: "modified" | "added" | "deleted";
+  status: "modified" | "added" | "removed";
   additions: number;
   changes: number;
   deletions: number;
@@ -83,8 +111,10 @@ function summarizeGraph(nodes: GraphNode[], edges: GraphEdge[] = []) {
 
   return { nodes: newNodes, edges: newEdges };
 }
+const searchParams = new URLSearchParams(location.search);
+const prUrl = searchParams.get("pr")!;
+const layout = searchParams.get("layout") || "radialOut2d";
 
-const prUrl = new URLSearchParams(location.search).get("pr")!;
 const organisationName = prUrl
   .split("github.com/")[1]
   .split("/pull")[0]
@@ -96,37 +126,58 @@ const repositoryName = prUrl
 const prId = prUrl.split("pull/")[1];
 
 export function Graph() {
+  const [selectedNode, setSelectedNode] = useState<GraphNode>();
+  const prInfoQuery = useQuery<{ base: { sha: string } }>({
+    queryKey: ["pr"],
+    queryFn: () =>
+      getGithubPRInfo(organisationName, repositoryName, Number(prId)),
+  });
+
   const prFilesQuery = useQuery<Array<File>>({
     queryKey: ["pr-files"],
     queryFn: () => getPRFiles(organisationName, repositoryName, prId),
   });
+
   const repoFilesQuery = useQuery<Array<{ path: string }>>({
-    queryKey: ["repo-files"],
-    queryFn: () => getRepoFiles(organisationName, repositoryName, "develop"),
+    queryKey: ["repo-files", prInfoQuery.data],
+    queryFn: () => {
+      return getRepoFiles(
+        organisationName,
+        repositoryName,
+        prInfoQuery.data!.base.sha
+      );
+    },
   });
+
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
+  const graphRef = useRef<GraphCanvasRef | null>(null);
 
   useEffect(() => {
     const prFiles = prFilesQuery.data || [];
-    // const repoFiles = repoFilesQuery.data || [];
+    const repoFiles = repoFilesQuery.data || [];
 
     const allKnownDirectories = getDirectoryNames(
       prFiles.map((file: File) => file.filename) ?? []
     );
 
-    // const contextFiles = prFiles
-    //   .flatMap((file: File) =>
-    //     repoFiles.filter(
-    //       (f) =>
-    //         f.path !== file.filename &&
-    //         directoryName(file.filename) === directoryName(f.path)
-    //     )
-    //   )
-    //   .filter(
-    //     (value, index, self) =>
-    //       self.findIndex((v) => v.path === value.path) === index
-    //   );
+    const contextFiles = prFiles
+      .flatMap((file: File) =>
+        repoFiles.filter(
+          (f) =>
+            f.path !== file.filename &&
+            directoryName(file.filename) === directoryName(f.path)
+        )
+      )
+      .filter(
+        (value, index, self) =>
+          self.findIndex((v) => v.path === value.path) === index
+      )
+      .filter(
+        (f) =>
+          selectedNode &&
+          directoryName(f.path) === directoryName(selectedNode.id)
+      );
 
     const rootNode = {
       id: "__ROOT__",
@@ -140,13 +191,17 @@ export function Graph() {
     const nodes = [rootNode]
       .concat(
         sort(allKnownDirectories).map((directory) => {
+          const isNew = !repoFiles.find((file) => file.path === directory);
+
           return {
             id: directory,
             label: basename(directory) + "/",
             data: { type: "directory" },
-            fill: "#ececec",
+            selected: selectedNode?.id === directory,
+            fill: isNew ? "#004d2a" : "#ececec",
+            icon: isNew ? directoryNewIcon : directoryIcon,
             size: 10,
-            className: "directory",
+            className: isNew ? "new-directory" : "directory",
           };
         })
       )
@@ -155,21 +210,29 @@ export function Graph() {
           id: file.filename,
           label: basename(file.filename)!,
           fill: colorForFile(file),
+          selected: selectedNode?.id === file.filename,
           size: 10,
+          icon: iconForFile(file),
           data: { type: "file" },
           className: "file",
         }))
+      )
+      .concat(
+        contextFiles
+          .filter(
+            (f) =>
+              selectedNode &&
+              directoryName(f.path) === directoryName(selectedNode.id)
+          )
+          .map((file) => ({
+            id: file.path,
+            label: basename(file.path)!,
+            fill: "#484848",
+            size: 5,
+            data: { type: "file" },
+            className: "file",
+          }))
       );
-    // .concat(
-    //   contextFiles.map((file) => ({
-    //     id: file.path,
-    //     label: basename(file.path)!,
-    //     fill: "#484848",
-    //     size: 5,
-    //     data: { type: "file" },
-    //     className: "file",
-    //   }))
-    // );
 
     const edges = prFiles
       .map((file) => {
@@ -189,19 +252,19 @@ export function Graph() {
             target: directory,
           };
         })
+      )
+      .concat(
+        contextFiles.map((file) => {
+          const directory = directoryName(file.path);
+          return {
+            id: `${directory}-${file.path}`,
+            source: directory || "__ROOT__",
+            target: file.path,
+            fill: "#2a2a2a",
+            style: "dotted",
+          };
+        })
       );
-    // .concat(
-    //   contextFiles.map((file) => {
-    //     const directory = directoryName(file.path);
-    //     return {
-    //       id: `${directory}-${file.path}`,
-    //       source: directory || "__ROOT__",
-    //       target: file.path,
-    //       fill: "#2a2a2a",
-    //       style: "dotted",
-    //     };
-    //   })
-    // );
 
     const { nodes: simplifiedNodes, edges: simplifiedEdges } = summarizeGraph(
       nodes,
@@ -210,24 +273,36 @@ export function Graph() {
 
     setNodes(sortNodes(simplifiedNodes, simplifiedEdges));
     setEdges(simplifiedEdges);
-  }, [prFilesQuery.data, repoFilesQuery.data]);
+  }, [prFilesQuery.data, repoFilesQuery.data, selectedNode]);
+
+  useEffect(() => {
+    if (graphRef.current && selectedNode) {
+      setTimeout(() => {
+        graphRef.current?.fitNodesInView([selectedNode.id]);
+        graphRef.current?.dollyOut();
+      }, 100);
+    }
+  }, [selectedNode]);
 
   return (
     <>
       <GraphCanvas
+        ref={graphRef}
         draggable
         theme={darkTheme}
         nodes={nodes}
         edges={edges}
         constrainDragging={true}
         labelType="nodes"
-        layoutType={"treeTd2d"}
-        layoutOverrides={
-          {
-            // mode: "td",
-            // linkDistance: 10,
-          }
-        }
+        layoutType={layout as LayoutTypes}
+        onCanvasClick={() => {
+          graphRef.current?.fitNodesInView();
+        }}
+        onNodeClick={(node) => {
+          selectedNode?.id === node.id
+            ? setSelectedNode(undefined)
+            : setSelectedNode(node);
+        }}
       />
     </>
   );
@@ -258,6 +333,7 @@ async function getPRFiles(
 ) {
   const headers = {
     Accept: "application/vnd.github.v3+json",
+    ...(apiKey ? { Authorization: `token ${apiKey}` } : {}),
   };
   const prUrl = `https://api.github.com/repos/${organisation}/${repoName}/pulls/${prId}`;
 
@@ -294,7 +370,33 @@ async function getRepoFiles(
   branch: string
 ) {
   const url = `https://api.github.com/repos/${organisation}/${repoName}/git/trees/${branch}?recursive=1`;
-  const response = await fetch(url);
+  const headers = {
+    Accept: "application/vnd.github.v3+json",
+    ...(apiKey ? { Authorization: `token ${apiKey}` } : {}),
+  };
+  const response = await fetch(url, { headers });
   const data = await response.json();
   return data.tree;
+}
+
+async function getGithubPRInfo(
+  organization: string,
+  repoName: string,
+  prId: number
+) {
+  const url = `https://api.github.com/repos/${organization}/${repoName}/pulls/${prId}`;
+  const headers = {
+    Accept: "application/vnd.github.v3+json",
+    ...(apiKey ? { Authorization: `token ${apiKey}` } : {}),
+  };
+
+  const response = await fetch(url, { headers });
+
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch PR info: ${response.status} ${response.statusText}`
+    );
+  }
+
+  return response.json();
 }

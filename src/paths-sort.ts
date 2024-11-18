@@ -45,9 +45,6 @@ export function sortNodes(nodes: GraphNode[], edges: GraphEdge[]) {
 
     return a.id.localeCompare(b.id, undefined, { sensitivity: "base" });
   });
-  console.log(
-    sortedNodes.map((n) => [n.id, nodeDistanceFromRoot(n, nodes, edges)])
-  );
 
   return sortedNodes;
 }
